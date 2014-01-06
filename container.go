@@ -523,12 +523,10 @@ func (container *Container) Start() (err error) {
 	}
 	if container.runtime.networkManager.disabled {
 		container.Config.NetworkDisabled = true
-		container.buildHostnameAndHostsFiles("127.0.1.1")
 	} else {
 		if err := container.allocateNetwork(); err != nil {
 			return err
 		}
-		container.buildHostnameAndHostsFiles(container.NetworkSettings.IPAddress)
 	}
 
 	// Make sure the config is compatible with the current kernel
@@ -614,6 +612,7 @@ func (container *Container) Start() (err error) {
 		return err
 	}
 
+	nameAndIp := make(map[string]string)
 	if len(children) > 0 {
 		container.activeLinks = make(map[string]*Link, len(children))
 
@@ -642,6 +641,7 @@ func (container *Container) Start() (err error) {
 			for _, envVar := range link.ToEnv() {
 				env = append(env, envVar)
 			}
+			nameAndIp[link.Alias()] = link.ChildIP
 		}
 	}
 
@@ -651,6 +651,12 @@ func (container *Container) Start() (err error) {
 
 	if err := container.generateEnvConfig(env); err != nil {
 		return err
+	}
+
+	if container.runtime.networkManager.disabled {
+		container.buildHostnameAndHostsFiles("127.0.1.1", nil)
+	} else {
+		container.buildHostnameAndHostsFiles(container.NetworkSettings.IPAddress, nameAndIp)
 	}
 
 	if container.Config.WorkingDir != "" {
@@ -1027,7 +1033,7 @@ func (container *Container) StderrPipe() (io.ReadCloser, error) {
 	return utils.NewBufReader(reader), nil
 }
 
-func (container *Container) buildHostnameAndHostsFiles(IP string) {
+func (container *Container) buildHostnameAndHostsFiles(IP string, links map[string]string) {
 	container.HostnamePath = path.Join(container.root, "hostname")
 	ioutil.WriteFile(container.HostnamePath, []byte(container.Config.Hostname+"\n"), 0644)
 
@@ -1046,6 +1052,12 @@ ff02::2		ip6-allrouters
 		hostsContent = append([]byte(fmt.Sprintf("%s\t%s.%s %s\n", IP, container.Config.Hostname, container.Config.Domainname, container.Config.Hostname)), hostsContent...)
 	} else if !container.Config.NetworkDisabled {
 		hostsContent = append([]byte(fmt.Sprintf("%s\t%s\n", IP, container.Config.Hostname)), hostsContent...)
+	}
+
+	if links != nil {
+		for name, ip := range links {
+			hostsContent = append([]byte(fmt.Sprintf("%s\t%s.docker\n", ip, name)), hostsContent...)
+		}
 	}
 
 	ioutil.WriteFile(container.HostsPath, hostsContent, 0644)
