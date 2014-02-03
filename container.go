@@ -1416,9 +1416,12 @@ func (container *Container) ExportRw() (archive.Archive, error) {
 	if container.runtime == nil {
 		return nil, fmt.Errorf("Can't load storage driver for unregistered container %s", container.ID)
 	}
-	defer container.Unmount()
 
-	return container.runtime.Diff(container)
+	archive, err := container.runtime.Diff(container)
+	if err != nil {
+		return nil, err
+	}
+	return EofReader(archive, func() { container.Unmount() }), nil
 }
 
 func (container *Container) Export() (archive.Archive, error) {
