@@ -162,15 +162,10 @@ func (img *Image) TarLayer() (arch archive.Archive, err error) {
 		return nil, err
 	}
 
-	defer func() {
-		if err == nil {
-			driver.Put(img.ID)
-		}
-	}()
-
 	if img.Parent == "" {
 		archive, err := archive.Tar(imgFs, archive.Uncompressed)
 		if err != nil {
+			driver.Put(img.ID)
 			return nil, err
 		}
 		return EofReader(archive, func() { driver.Put(img.ID) }), nil
@@ -178,15 +173,18 @@ func (img *Image) TarLayer() (arch archive.Archive, err error) {
 
 	parentFs, err := driver.Get(img.Parent)
 	if err != nil {
+		driver.Put(img.ID)
 		return nil, err
 	}
 	defer driver.Put(img.Parent)
 	changes, err := archive.ChangesDirs(imgFs, parentFs)
 	if err != nil {
+		driver.Put(img.ID)
 		return nil, err
 	}
 	archive, err := archive.ExportChanges(imgFs, changes)
 	if err != nil {
+		driver.Put(img.ID)
 		return nil, err
 	}
 	return EofReader(archive, func() { driver.Put(img.ID) }), nil
