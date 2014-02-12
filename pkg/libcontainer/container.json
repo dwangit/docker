@@ -1,6 +1,6 @@
 {
     "id": "koye",
-    "namespace_pid": 22534,
+    "namespace_pid": 28383,
     "command": {
         "args": [
             "/bin/bash"
@@ -12,8 +12,7 @@
             "TERM=xterm"
         ]
     },
-    "rootfs": "/var/lib/docker/btrfs/subvolumes/f9c318c40e4e50b58823a2f3a12dca1b6e543e50d2599bbf7336170acf64b5e2",
-    "network_namespace_fd": 3,
+    "rootfs": "/root/main/mycontainer",
     "namespaces": [
         "NEWIPC",
         "NEWNS",
@@ -34,6 +33,9 @@
         "AUDIT_WRITE",
         "AUDIT_CONTROL",
         "MAC_OVERRIDE",
+        "MAC_ADMIN"
+    ]
+}E",
         "MAC_ADMIN"
     ]
 } "SYS_TTY_CONFIG",

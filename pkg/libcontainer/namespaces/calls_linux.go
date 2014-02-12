@@ -141,3 +141,17 @@ func dup2(fd1, fd2 uintptr) error {
 func mknod(path string, mode uint32, dev int) error {
 	return syscall.Mknod(path, mode, dev)
 }
+
+func parentDeathSignal() error {
+	if _, _, err := syscall.RawSyscall6(syscall.SYS_PRCTL, syscall.PR_SET_PDEATHSIG, uintptr(syscall.SIGKILL), 0, 0, 0, 0); err != 0 {
+		return err
+	}
+	return nil
+}
+
+func setctty() error {
+	if _, _, err := syscall.RawSyscall(syscall.SYS_IOCTL, 0, uintptr(syscall.TIOCSCTTY), 0); err != 0 {
+		return err
+	}
+	return nil
+}
