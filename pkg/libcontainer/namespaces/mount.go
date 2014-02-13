@@ -39,7 +39,7 @@ func SetupNewMountNamespace(rootfs, console string, readonly bool) error {
 	if err := os.Remove(ptmx); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Symlink("/dev/ptmx", ptmx); err != nil {
+	if err := os.Symlink(filepath.Join(rootfs, "pts/ptmx"), ptmx); err != nil {
 		return fmt.Errorf("symlink dev ptmx %s", err)
 	}
 
@@ -131,6 +131,7 @@ func setupConsole(rootfs, console string) error {
 	if err := mknod(dest, (st.Mode&^07777)|0600, int(st.Rdev)); err != nil {
 		return fmt.Errorf("mknod %s %s", dest, err)
 	}
+
 	if err := mount(console, dest, "bind", syscall.MS_BIND, ""); err != nil {
 		return fmt.Errorf("bind %s to %s %s", console, dest, err)
 	}
@@ -152,12 +153,12 @@ func mountSystem(rootfs string) error {
 		{source: "", path: filepath.Join(rootfs, "proc/sys"), flags: syscall.MS_BIND | syscall.MS_RDONLY | syscall.MS_REMOUNT},
 		{source: "sysfs", path: filepath.Join(rootfs, "sys"), device: "sysfs", flags: defaults},
 		{source: "tmpfs", path: filepath.Join(rootfs, "dev"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_STRICTATIME, data: "mode=755"},
-		{source: "shm", path: filepath.Join(rootfs, "dev", "shm"), device: "tmpfs", flags: defaults, data: "mode=1777,size=65536k"},
+		{source: "shm", path: filepath.Join(rootfs, "dev", "shm"), device: "tmpfs", flags: defaults, data: "mode=1777"},
 		{source: "devpts", path: filepath.Join(rootfs, "dev", "pts"), device: "devpts", flags: syscall.MS_NOSUID | syscall.MS_NOEXEC, data: "newinstance,ptmxmode=0666,mode=620,gid=4"},
 		{source: "tmpfs", path: filepath.Join(rootfs, "run"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_STRICTATIME, data: "mode=755"},
 	}
 	for _, m := range mounts {
-		if err := os.MkdirAll(m.path, 0666); err != nil && !os.IsExist(err) {
+		if err := os.MkdirAll(m.path, 0755); err != nil && !os.IsExist(err) {
 			return fmt.Errorf("mkdirall %s %s", m.path, err)
 		}
 		if err := mount(m.source, m.path, m.device, uintptr(m.flags), m.data); err != nil {

@@ -39,7 +39,7 @@ func Exec(container *libcontainer.Container) (int, error) {
 		return -1, err
 	}
 
-	master, err := os.OpenFile("/dev/ptmx", syscall.O_RDWR|syscall.O_NOCTTY, 0)
+	master, err := os.OpenFile("/dev/ptmx", syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return -1, err
 	}
@@ -53,7 +53,7 @@ func Exec(container *libcontainer.Container) (int, error) {
 		return -1, err
 	}
 
-	slave, err := os.OpenFile(console, syscall.O_RDWR|syscall.O_NOCTTY, 0)
+	slave, err := openTerminal(console, syscall.O_RDWR)
 	if err != nil {
 		return -1, err
 	}
@@ -101,6 +101,27 @@ func Exec(container *libcontainer.Container) (int, error) {
 	}()
 
 	return pid, nil
+}
+
+func openTerminal(name string, flag int) (*os.File, error) {
+	r, e := syscall.Open(name, flag, 0)
+	if e != nil {
+		return nil, &os.PathError{"open", name, e}
+	}
+
+	// There's a race here with fork/exec, which we are
+	// content to live with.  See ../syscall/exec_unix.go.
+	// On OS X 10.6, the O_CLOEXEC flag is not respected.
+	// On OS X 10.7, the O_CLOEXEC flag works.
+	// Without a cheap & reliable way to detect 10.6 vs 10.7 at
+	// runtime, we just always call syscall.CloseOnExec on Darwin.
+	// Once >=10.7 is prevalent, this extra call can removed.
+	//	if syscall.O_CLOEXEC == 0 || runtime.GOOS == "darwin" { // O_CLOEXEC not supported
+	//		syscall.CloseOnExec(r)
+	//	}
+
+	return os.NewFile(uintptr(r), name), nil
+
 }
 
 // execAction runs inside the new namespaces and initializes the standard
