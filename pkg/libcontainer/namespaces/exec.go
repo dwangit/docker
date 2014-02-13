@@ -39,7 +39,7 @@ func Exec(container *libcontainer.Container) (int, error) {
 		return -1, err
 	}
 
-	master, err := os.OpenFile("/dev/ptmx", syscall.O_RDWR, 0)
+	master, err := os.OpenFile("/dev/ptmx", syscall.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		return -1, err
 	}
@@ -52,6 +52,7 @@ func Exec(container *libcontainer.Container) (int, error) {
 	if err := unlockpt(master); err != nil {
 		return -1, err
 	}
+
 	slave, err := os.OpenFile(console, syscall.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		return -1, err
@@ -70,21 +71,15 @@ func Exec(container *libcontainer.Container) (int, error) {
 		closefd(1)
 		closefd(2)
 
-		if slave.Fd() != 0 {
-			log.Println("slave not 0")
-			//	return fmt.Errorf("slave not fd 0")
-		}
 		if err := dup2(slave.Fd(), 0); err != nil {
 			log.Printf("dup 0 %s\n", err)
 		}
-
 		if err := dup2(slave.Fd(), 1); err != nil {
 			log.Printf("dup %s \n", err)
 		}
 		if err := dup2(slave.Fd(), 2); err != nil {
 			log.Printf("dup %s \n", err)
 		}
-
 		return execAction(container, rootfs, console)
 	})
 	if err != nil {

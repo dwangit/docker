@@ -66,7 +66,6 @@ func SetupNewMountNamespace(rootfs, console string, readonly bool) error {
 	if err := chdir("/"); err != nil {
 		return fmt.Errorf("chdir / %s", err)
 	}
-
 	return nil
 }
 
@@ -149,6 +148,8 @@ func mountSystem(rootfs string) error {
 		data   string
 	}{
 		{source: "proc", path: filepath.Join(rootfs, "proc"), device: "proc", flags: defaults},
+		{source: "/proc/sys", path: filepath.Join(rootfs, "proc/sys"), flags: syscall.MS_BIND},
+		{source: "", path: filepath.Join(rootfs, "proc/sys"), flags: syscall.MS_BIND | syscall.MS_RDONLY | syscall.MS_REMOUNT},
 		{source: "sysfs", path: filepath.Join(rootfs, "sys"), device: "sysfs", flags: defaults},
 		{source: "tmpfs", path: filepath.Join(rootfs, "dev"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_STRICTATIME, data: "mode=755"},
 		{source: "shm", path: filepath.Join(rootfs, "dev", "shm"), device: "tmpfs", flags: defaults, data: "mode=1777,size=65536k"},
