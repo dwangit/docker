@@ -36,7 +36,9 @@ func SetupNewMountNamespace(rootfs, console string, readonly bool) error {
 	}
 
 	ptmx := filepath.Join(rootfs, "dev/ptmx")
-	os.Remove(ptmx)
+	if err := os.Remove(ptmx); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	if err := os.Symlink("/dev/ptmx", ptmx); err != nil {
 		return fmt.Errorf("symlink dev ptmx %s", err)
 	}
@@ -56,6 +58,15 @@ func SetupNewMountNamespace(rootfs, console string, readonly bool) error {
 	if err := mount(rootfs, "/", "", syscall.MS_MOVE, ""); err != nil {
 		return fmt.Errorf("mount move %s into / %s", rootfs, err)
 	}
+
+	if err := chroot("."); err != nil {
+		return fmt.Errorf("chroot . %s", err)
+	}
+
+	if err := chdir("/"); err != nil {
+		return fmt.Errorf("chdir / %s", err)
+	}
+
 	return nil
 }
 
@@ -73,7 +84,7 @@ func copyDevNodes(rootfs string) error {
 			return err
 		}
 		dest := filepath.Join(rootfs, "dev", node)
-		if err := os.Remove(dest); err != nil && os.IsNotExist(err) {
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove %s %s", dest, err)
 		}
 		st := stat.Sys().(*syscall.Stat_t)
@@ -89,14 +100,14 @@ func setupDev(rootfs string) error {
 		from string
 		to   string
 	}{
-		//		{"/proc/kcore", "/dev/core"},
+		{"/proc/kcore", "/dev/core"},
 		{"/proc/self/fd", "/dev/fd"},
 		{"/proc/self/fd/0", "/dev/stdin"},
 		{"/proc/self/fd/1", "/dev/stdout"},
 		{"/proc/self/fd/2", "/dev/stderr"},
 	} {
 		dest := filepath.Join(rootfs, link.to)
-		if err := os.Remove(dest); err != nil && os.IsNotExist(err) {
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove %s %s", dest, err)
 		}
 		if err := os.Symlink(link.from, dest); err != nil {
@@ -114,9 +125,10 @@ func setupConsole(rootfs, console string) error {
 	st := stat.Sys().(*syscall.Stat_t)
 
 	dest := filepath.Join(rootfs, "dev/console")
-	if err := os.Remove(dest); err != nil && os.IsNotExist(err) {
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove %s %s", dest, err)
 	}
+
 	if err := mknod(dest, (st.Mode&^07777)|0600, int(st.Rdev)); err != nil {
 		return fmt.Errorf("mknod %s %s", dest, err)
 	}
@@ -138,8 +150,10 @@ func mountSystem(rootfs string) error {
 	}{
 		{source: "proc", path: filepath.Join(rootfs, "proc"), device: "proc", flags: defaults},
 		{source: "sysfs", path: filepath.Join(rootfs, "sys"), device: "sysfs", flags: defaults},
-		{source: "shm", path: filepath.Join(rootfs, "dev", "shm"), device: "tmpfs", flags: defaults, data: "size=65536k"},
-		{source: "devpts", path: filepath.Join(rootfs, "dev", "pts"), device: "devpts", flags: syscall.MS_NOSUID | syscall.MS_NOEXEC, data: "ptmxmode=0666"},
+		{source: "tmpfs", path: filepath.Join(rootfs, "dev"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_STRICTATIME, data: "mode=755"},
+		{source: "shm", path: filepath.Join(rootfs, "dev", "shm"), device: "tmpfs", flags: defaults, data: "mode=1777,size=65536k"},
+		{source: "devpts", path: filepath.Join(rootfs, "dev", "pts"), device: "devpts", flags: syscall.MS_NOSUID | syscall.MS_NOEXEC, data: "newinstance,ptmxmode=0666,mode=620,gid=4"},
+		{source: "tmpfs", path: filepath.Join(rootfs, "run"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_STRICTATIME, data: "mode=755"},
 	}
 	for _, m := range mounts {
 		if err := os.MkdirAll(m.path, 0666); err != nil && !os.IsExist(err) {

@@ -1,6 +1,6 @@
 {
     "id": "koye",
-    "namespace_pid": 28383,
+    "namespace_pid": 3117,
     "command": {
         "args": [
             "/bin/bash"
@@ -29,16 +29,6 @@
         "SYS_RESOURCE",
         "SYS_TIME",
         "SYS_TTY_CONFIG",
-        "MKNOD",
-        "AUDIT_WRITE",
-        "AUDIT_CONTROL",
-        "MAC_OVERRIDE",
-        "MAC_ADMIN"
-    ]
-}E",
-        "MAC_ADMIN"
-    ]
-} "SYS_TTY_CONFIG",
         "MKNOD",
         "AUDIT_WRITE",
         "AUDIT_CONTROL",

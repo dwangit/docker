@@ -11,6 +11,7 @@ import (
 	"github.com/dotcloud/docker/pkg/libcontainer/capabilities"
 	"github.com/dotcloud/docker/pkg/libcontainer/utils"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -38,11 +39,10 @@ func Exec(container *libcontainer.Container) (int, error) {
 		return -1, err
 	}
 
-	master, err := os.OpenFile("/dev/ptmx", syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NDELAY, 0)
+	master, err := os.OpenFile("/dev/ptmx", syscall.O_RDWR, 0)
 	if err != nil {
 		return -1, err
 	}
-	usetCloseOnExec(master.Fd())
 
 	console, err := ptsname(master)
 	if err != nil {
@@ -52,58 +52,57 @@ func Exec(container *libcontainer.Container) (int, error) {
 	if err := unlockpt(master); err != nil {
 		return -1, err
 	}
-
-	log, err := os.OpenFile("/root/logs", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0755)
+	slave, err := os.OpenFile(console, syscall.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		return -1, err
 	}
 
-	pid, err := CloneIntoNamespace(container.Namespaces, func() error {
-		println("open slave")
+	logger, err := os.OpenFile("/root/logs", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0755)
+	if err != nil {
+		return -1, err
+	}
+	log.SetOutput(logger)
 
+	pid, err := CloneIntoNamespace(container.Namespaces, func() error {
 		closefd(master.Fd())
 
 		closefd(0)
 		closefd(1)
 		closefd(2)
 
-		slave, err := os.OpenFile(console, syscall.O_RDWR|syscall.O_NOCTTY, 0)
-		if err != nil {
-			return err
-		}
-
 		if slave.Fd() != 0 {
-			log.WriteString("SLAVE not 0 \n")
+			log.Println("slave not 0")
+			//	return fmt.Errorf("slave not fd 0")
 		}
-
-		if err := dup2(0, slave.Fd()); err != nil {
-			log.WriteString("dup stdin " + err.Error() + "\n")
+		if err := dup2(slave.Fd(), 0); err != nil {
+			log.Printf("dup 0 %s\n", err)
 		}
 
 		if err := dup2(slave.Fd(), 1); err != nil {
-			log.WriteString("dup " + err.Error() + "\n")
+			log.Printf("dup %s \n", err)
 		}
 		if err := dup2(slave.Fd(), 2); err != nil {
-			log.WriteString("dup " + err.Error() + "\n")
+			log.Printf("dup %s \n", err)
 		}
 
-		log.WriteString("exec action\n")
-
-		return execAction(container, rootfs, console, log)
-
+		return execAction(container, rootfs, console)
 	})
 	if err != nil {
 		return -1, err
 	}
 
 	go func() {
-		io.Copy(master, os.Stdin)
-		os.Stdout.WriteString("stdin are you closed")
+		if _, err := io.Copy(os.Stdout, master); err != nil {
+			log.Println(err)
+		}
+		log.Println("io copy stop stdout")
 	}()
 
 	go func() {
-		io.Copy(os.Stdout, master)
-		os.Stdout.WriteString("stdout are you closed")
+		if _, err := io.Copy(master, os.Stdin); err != nil {
+			log.Println(err)
+		}
+		log.Println("io copy stop stdin")
 	}()
 
 	return pid, nil
@@ -111,41 +110,31 @@ func Exec(container *libcontainer.Container) (int, error) {
 
 // execAction runs inside the new namespaces and initializes the standard
 // setup
-func execAction(container *libcontainer.Container, rootfs, console string, log *os.File) error {
-	log.WriteString("set sid\n")
+func execAction(container *libcontainer.Container, rootfs, console string) error {
 	if _, err := setsid(); err != nil {
-		log.WriteString("set sid" + err.Error() + "\n")
+		log.Printf("set sid %s\n", err)
 		return fmt.Errorf("setsid %s", err)
 	}
 
-	log.WriteString("set ctty\n")
 	if err := setctty(); err != nil {
-		log.WriteString("set cty " + err.Error() + "\n")
+		log.Printf("setctty %s\n", err)
 		return fmt.Errorf("setctty %s", err)
 	}
 
 	if err := parentDeathSignal(); err != nil {
+		log.Printf("parent death sig %s\n", err)
 		return fmt.Errorf("parent deth signal %s", err)
 	}
 
-	log.WriteString("setup mounts\n")
 	if err := SetupNewMountNamespace(rootfs, console, container.ReadonlyFs); err != nil {
+		log.Printf("error setup mounts %s\n", err)
 		return fmt.Errorf("setup mount namespace %s", err)
 	}
 
-	// the network namespace must be joined before chrooting the process
 	if container.NetNsFd > 0 {
 		if err := JoinExistingNamespace(container.NetNsFd, libcontainer.CLONE_NEWNET); err != nil {
 			return fmt.Errorf("join existing net namespace %s", err)
 		}
-	}
-
-	if err := chroot("."); err != nil {
-		return fmt.Errorf("chroot . %s", err)
-	}
-
-	if err := chdir("/"); err != nil {
-		return fmt.Errorf("chdir / %s", err)
 	}
 
 	if err := sethostname(container.ID); err != nil {
@@ -165,6 +154,8 @@ func execAction(container *libcontainer.Container, rootfs, console string, log *
 			return fmt.Errorf("chdir to %s %s", container.WorkingDir, err)
 		}
 	}
+
+	log.Println("execing container")
 	if err := exec(container.Command.Args[0], container.Command.Args[0:], container.Command.Env); err != nil {
 		return err
 	}

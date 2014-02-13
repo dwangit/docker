@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -25,7 +24,7 @@ func init() {
 	flag.Parse()
 }
 
-func exec(container *libcontainer.Container, name string) error {
+func exec(container *libcontainer.Container) error {
 	var (
 		netFile *os.File
 		err     error
@@ -45,34 +44,15 @@ func exec(container *libcontainer.Container, name string) error {
 		return fmt.Errorf("error exec container %s", err)
 	}
 
-	container.NsPid = pid
 	if displayPid {
 		fmt.Println(pid)
 	}
-
-	body, err := json.Marshal(container)
-	if err != nil {
-		return err
-	}
-	buf := bytes.NewBuffer(nil)
-	if err := json.Indent(buf, body, "", "    "); err != nil {
-		return err
-	}
-
-	f, err := os.OpenFile(name, os.O_RDWR, 0755)
-	if err != nil {
-		return err
-	}
-	if _, err := buf.WriteTo(f); err != nil {
-		f.Close()
-		return err
-	}
-	f.Close()
 
 	exitcode, err := utils.WaitOnPid(pid)
 	if err != nil {
 		return fmt.Errorf("error waiting on child %s", err)
 	}
+	fmt.Println(exitcode)
 	if usrNet {
 		netFile.Close()
 		if err := network.DeleteNetworkNamespace("/root/nsroot/test"); err != nil {
@@ -168,7 +148,7 @@ func main() {
 
 	switch cliCmd {
 	case "exec":
-		err = exec(container, config)
+		err = exec(container)
 	case "execin":
 		err = execIn(container)
 	case "net":
