@@ -2,6 +2,7 @@ package namespaces
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -66,10 +67,15 @@ func SetupNewMountNamespace(rootfs, console string, readonly bool) error {
 	if err := chdir("/"); err != nil {
 		return fmt.Errorf("chdir / %s", err)
 	}
+
+	umask(0022)
+
 	return nil
 }
 
 func copyDevNodes(rootfs string) error {
+	umask(0000)
+
 	for _, node := range []string{
 		"null",
 		"zero",
@@ -82,12 +88,14 @@ func copyDevNodes(rootfs string) error {
 		if err != nil {
 			return err
 		}
-		dest := filepath.Join(rootfs, "dev", node)
-		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove %s %s", dest, err)
-		}
-		st := stat.Sys().(*syscall.Stat_t)
-		if err := mknod(dest, st.Mode, int(st.Rdev)); err != nil {
+
+		var (
+			dest = filepath.Join(rootfs, "dev", node)
+			st   = stat.Sys().(*syscall.Stat_t)
+		)
+
+		log.Printf("copy %s to %s %d\n", node, dest, st.Rdev)
+		if err := mknod(dest, st.Mode, int(st.Rdev)); err != nil && !os.IsExist(err) {
 			return fmt.Errorf("copy %s %s", node, err)
 		}
 	}
@@ -117,6 +125,8 @@ func setupDev(rootfs string) error {
 }
 
 func setupConsole(rootfs, console string) error {
+	umask(0000)
+
 	stat, err := os.Stat(console)
 	if err != nil {
 		return fmt.Errorf("stat console %s %s", console, err)
@@ -126,6 +136,13 @@ func setupConsole(rootfs, console string) error {
 	dest := filepath.Join(rootfs, "dev/console")
 	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove %s %s", dest, err)
+	}
+
+	if err := os.Chmod(console, 0600); err != nil {
+		return err
+	}
+	if err := os.Chown(console, 0, 0); err != nil {
+		return err
 	}
 
 	if err := mknod(dest, (st.Mode&^07777)|0600, int(st.Rdev)); err != nil {
@@ -154,7 +171,7 @@ func mountSystem(rootfs string) error {
 		{source: "sysfs", path: filepath.Join(rootfs, "sys"), device: "sysfs", flags: defaults},
 		{source: "tmpfs", path: filepath.Join(rootfs, "dev"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_STRICTATIME, data: "mode=755"},
 		{source: "shm", path: filepath.Join(rootfs, "dev", "shm"), device: "tmpfs", flags: defaults, data: "mode=1777"},
-		{source: "devpts", path: filepath.Join(rootfs, "dev", "pts"), device: "devpts", flags: syscall.MS_NOSUID | syscall.MS_NOEXEC, data: "newinstance,ptmxmode=0666,mode=620,gid=4"},
+		{source: "devpts", path: filepath.Join(rootfs, "dev", "pts"), device: "devpts", flags: syscall.MS_NOSUID | syscall.MS_NOEXEC, data: "newinstance,ptmxmode=0666,mode=620,gid=5"},
 		{source: "tmpfs", path: filepath.Join(rootfs, "run"), device: "tmpfs", flags: syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_STRICTATIME, data: "mode=755"},
 	}
 	for _, m := range mounts {

@@ -154,3 +154,11 @@ func setctty() error {
 	}
 	return nil
 }
+
+func mkfifo(name string, mode uint32) error {
+	return syscall.Mkfifo(name, mode)
+}
+
+func umask(mask int) int {
+	return syscall.Umask(mask)
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/dotcloud/docker/pkg/libcontainer"
 	"github.com/dotcloud/docker/pkg/libcontainer/capabilities"
 	"github.com/dotcloud/docker/pkg/libcontainer/utils"
+	"github.com/dotcloud/docker/pkg/term"
 	"io"
 	"log"
 	"os"
@@ -53,11 +54,6 @@ func Exec(container *libcontainer.Container) (int, error) {
 		return -1, err
 	}
 
-	slave, err := openTerminal(console, syscall.O_RDWR)
-	if err != nil {
-		return -1, err
-	}
-
 	logger, err := os.OpenFile("/root/logs", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0755)
 	if err != nil {
 		return -1, err
@@ -71,20 +67,26 @@ func Exec(container *libcontainer.Container) (int, error) {
 		closefd(1)
 		closefd(2)
 
-		if err := dup2(slave.Fd(), 0); err != nil {
-			log.Printf("dup 0 %s\n", err)
+		slave, err := openTerminal(console, syscall.O_RDWR)
+		if err != nil {
+			return err
 		}
+
 		if err := dup2(slave.Fd(), 1); err != nil {
 			log.Printf("dup %s \n", err)
+			return err
 		}
 		if err := dup2(slave.Fd(), 2); err != nil {
 			log.Printf("dup %s \n", err)
+			return err
 		}
 		return execAction(container, rootfs, console)
 	})
 	if err != nil {
 		return -1, err
 	}
+
+	term.SetRawTerminal(os.Stdin.Fd())
 
 	go func() {
 		if _, err := io.Copy(os.Stdout, master); err != nil {
@@ -108,20 +110,7 @@ func openTerminal(name string, flag int) (*os.File, error) {
 	if e != nil {
 		return nil, &os.PathError{"open", name, e}
 	}
-
-	// There's a race here with fork/exec, which we are
-	// content to live with.  See ../syscall/exec_unix.go.
-	// On OS X 10.6, the O_CLOEXEC flag is not respected.
-	// On OS X 10.7, the O_CLOEXEC flag works.
-	// Without a cheap & reliable way to detect 10.6 vs 10.7 at
-	// runtime, we just always call syscall.CloseOnExec on Darwin.
-	// Once >=10.7 is prevalent, this extra call can removed.
-	//	if syscall.O_CLOEXEC == 0 || runtime.GOOS == "darwin" { // O_CLOEXEC not supported
-	//		syscall.CloseOnExec(r)
-	//	}
-
 	return os.NewFile(uintptr(r), name), nil
-
 }
 
 // execAction runs inside the new namespaces and initializes the standard
