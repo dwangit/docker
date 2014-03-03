@@ -13,7 +13,7 @@ import (
 
 // Exec performes setup outside of a namespace so that a container can be
 // executed.  Exec is a high level function for working with container namespaces.
-func (ns *linuxNs) Exec(container *libcontainer.Container, term Terminal, args []string) (int, error) {
+func (ns *linuxNs) Exec(container *libcontainer.Container, nspid int, term Terminal, args []string) (int, error) {
 	var (
 		master  *os.File
 		console string
@@ -35,7 +35,7 @@ func (ns *linuxNs) Exec(container *libcontainer.Container, term Terminal, args [
 		term.SetMaster(master)
 	}
 
-	command := ns.commandFactory.Create(container, console, syncPipe.child.Fd(), args)
+	command := ns.commandFactory.Create(container, console, syncPipe.child.Fd(), nspid, args)
 	if err := term.Attach(command); err != nil {
 		return -1, err
 	}

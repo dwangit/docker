@@ -14,13 +14,14 @@ import (
 
 var (
 	root, console string
-	pipeFd        int
+	pipeFd, nspid int
 )
 
 func registerFlags() {
 	flag.StringVar(&console, "console", "", "console (pty slave) path")
 	flag.IntVar(&pipeFd, "pipe", 0, "sync pipe fd")
 	flag.StringVar(&root, "root", ".", "root for storing configuration data")
+	flag.IntVar(&nspid, "nspid", 0, "existing namespace pid to join")
 
 	flag.Parse()
 }
@@ -49,12 +50,9 @@ func main() {
 				log.Fatal(err)
 			}
 		}
-		if nspid > 0 {
-			exitCode, err = ns.ExecIn(container, nspid, flag.Args()[1:])
-		} else {
-			term := nsinit.NewTerminal(os.Stdin, os.Stdout, os.Stderr, container.Tty)
-			exitCode, err = ns.Exec(container, term, flag.Args()[1:])
-		}
+
+		term := nsinit.NewTerminal(os.Stdin, os.Stdout, os.Stderr, container.Tty)
+		exitCode, err = ns.Exec(container, nspid, term, flag.Args()[1:])
 		if err != nil {
 			log.Fatal(err)
 		}
