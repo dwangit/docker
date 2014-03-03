@@ -336,6 +336,10 @@ func (d *driver) GetPidsForContainer(id string) ([]int, error) {
 	return pids, nil
 }
 
+func (d *driver) Exec(c *execdriver.Command, pipes *execdriver.Pipes) (int, error) {
+	return -1, fmt.Errorf("exec is not supported for the lxc execution driver")
+}
+
 func linkLxcStart(root string) error {
 	sourcePath, err := exec.LookPath("lxc-start")
 	if err != nil {

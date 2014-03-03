@@ -39,6 +39,19 @@ func init() {
 		}
 		f.Close()
 
+		nspid, err := readPid(args.Root)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
+		}
+		if nspid > 0 {
+			exitCode, err := ns.ExecIn(container, nspid, args.Args)
+			if err != nil {
+				return err
+			}
+			os.Exit(exitCode)
+		}
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
@@ -52,6 +65,18 @@ func init() {
 		}
 		return nil
 	})
+}
+
+func readPid(root string) (int, error) {
+	data, err := ioutil.ReadFile(filepath.Join(root, "pid"))
+	if err != nil {
+		return -1, err
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return -1, err
+	}
+	return pid, nil
 }
 
 type driver struct {
@@ -140,6 +165,10 @@ func (d *driver) Restore(c *execdriver.Command) error {
 		}
 	}
 	return nil
+}
+
+func (d *driver) Exec(c *execdriver.Command, pipes *execdriver.Pipes) (int, error) {
+
 }
 
 func (d *driver) Info(id string) execdriver.Info {

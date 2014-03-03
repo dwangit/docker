@@ -10,13 +10,14 @@ import (
 	"github.com/dotcloud/docker/pkg/libcontainer/utils"
 	"github.com/dotcloud/docker/pkg/system"
 	"github.com/dotcloud/docker/pkg/user"
+	"log"
 	"os"
 	"syscall"
 )
 
 // Init is the init process that first runs inside a new namespace to setup mounts, users, networking,
 // and other options required for the new container.
-func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, console string, syncPipe *SyncPipe, args []string) error {
+func (ns *linuxNs) Init(container *libcontainer.Container, nspid int, uncleanRootfs, console string, syncPipe *SyncPipe, args []string) error {
 	rootfs, err := utils.ResolveRootfs(uncleanRootfs)
 	if err != nil {
 		return err
@@ -30,6 +31,24 @@ func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, consol
 	}
 	syncPipe.Close()
 
+	if nspid > 0 {
+		err = ns.joinExistingNamespace(container, nspid, console, context)
+	} else {
+		err = ns.setupNewNamespace(container, rootfs, console, context)
+	}
+	log.Printf("setup new namespace with %s\n", err)
+	if err != nil {
+		return err
+	}
+
+	if err := finalizeNamespace(container); err != nil {
+		return fmt.Errorf("finalize namespace %s", err)
+	}
+	return system.Execv(args[0], args[0:], container.Env)
+}
+
+func (ns *linuxNs) setupControllingTerminal(console string) error {
+	log.Println(console)
 	if console != "" {
 		// close pipes so that we can replace it with the pty
 		closeStdPipes()
@@ -49,12 +68,13 @@ func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, consol
 			return fmt.Errorf("setctty %s", err)
 		}
 	}
+	return nil
+}
 
-	/*
-		if err := system.ParentDeathSignal(); err != nil {
-			return fmt.Errorf("parent death signal %s", err)
-		}
-	*/
+func (ns *linuxNs) setupNewNamespace(container *libcontainer.Container, rootfs, console string, context libcontainer.Context) error {
+	if err := ns.setupControllingTerminal(console); err != nil {
+		return err
+	}
 	if err := setupNewMountNamespace(rootfs, console, container.ReadonlyFs); err != nil {
 		return fmt.Errorf("setup mount namespace %s", err)
 	}
@@ -64,10 +84,7 @@ func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, consol
 	if err := system.Sethostname(container.Hostname); err != nil {
 		return fmt.Errorf("sethostname %s", err)
 	}
-	if err := finalizeNamespace(container); err != nil {
-		return fmt.Errorf("finalize namespace %s", err)
-	}
-	return system.Execv(args[0], args[0:], container.Env)
+	return nil
 }
 
 func closeStdPipes() {

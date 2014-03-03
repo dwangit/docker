@@ -13,19 +13,21 @@ import (
 
 // Exec performes setup outside of a namespace so that a container can be
 // executed.  Exec is a high level function for working with container namespaces.
-func (ns *linuxNs) Exec(container *libcontainer.Container, term Terminal, args []string) (int, error) {
+func (ns *linuxNs) Exec(container *libcontainer.Container, nspid int, term Terminal, args []string) (int, error) {
 	var (
-		master  *os.File
-		console string
-		err     error
+		master   *os.File
+		syncPipe *SyncPipe
+		childFd  uintptr
+		console  string
+		err      error
 	)
 
 	// create a pipe so that we can syncronize with the namespaced process and
 	// pass the veth name to the child
-	syncPipe, err := NewSyncPipe()
-	if err != nil {
+	if syncPipe, err = NewSyncPipe(); err != nil {
 		return -1, err
 	}
+	childFd = syncPipe.child.Fd()
 
 	if container.Tty {
 		master, console, err = system.CreateMasterAndConsole()
@@ -35,7 +37,7 @@ func (ns *linuxNs) Exec(container *libcontainer.Container, term Terminal, args [
 		term.SetMaster(master)
 	}
 
-	command := ns.commandFactory.Create(container, console, syncPipe.child.Fd(), args)
+	command := ns.commandFactory.Create(container, console, childFd, nspid, args)
 	if err := term.Attach(command); err != nil {
 		return -1, err
 	}
@@ -44,11 +46,13 @@ func (ns *linuxNs) Exec(container *libcontainer.Container, term Terminal, args [
 	if err := command.Start(); err != nil {
 		return -1, err
 	}
-	if err := ns.stateWriter.WritePid(command.Process.Pid); err != nil {
-		command.Process.Kill()
-		return -1, err
+	if nspid <= 0 {
+		if err := ns.stateWriter.WritePid(command.Process.Pid); err != nil {
+			command.Process.Kill()
+			return -1, err
+		}
+		defer ns.stateWriter.DeletePid()
 	}
-	defer ns.stateWriter.DeletePid()
 
 	// Do this before syncing with child so that no children
 	// can escape the cgroup
@@ -56,9 +60,11 @@ func (ns *linuxNs) Exec(container *libcontainer.Container, term Terminal, args [
 		command.Process.Kill()
 		return -1, err
 	}
-	if err := ns.InitializeNetworking(container, command.Process.Pid, syncPipe); err != nil {
-		command.Process.Kill()
-		return -1, err
+	if nspid <= 0 {
+		if err := ns.InitializeNetworking(container, command.Process.Pid, syncPipe); err != nil {
+			command.Process.Kill()
+			return -1, err
+		}
 	}
 
 	// Sync with child

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/dotcloud/docker/pkg/libcontainer"
 	"github.com/dotcloud/docker/pkg/system"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,11 +14,14 @@ import (
 )
 
 // ExecIn uses an existing pid and joins the pid's namespaces with the new command.
-func (ns *linuxNs) ExecIn(container *libcontainer.Container, nspid int, args []string) (int, error) {
+func (ns *linuxNs) joinExistingNamespace(container *libcontainer.Container, nspid int, console string, context libcontainer.Context) error {
 	for _, ns := range container.Namespaces {
 		if err := system.Unshare(ns.Value); err != nil {
-			return -1, err
+			return err
 		}
+	}
+	if err := ns.setupControllingTerminal(console); err != nil {
+		return err
 	}
 	fds, err := ns.getNsFds(nspid, container)
 	closeFds := func() {
@@ -27,15 +31,16 @@ func (ns *linuxNs) ExecIn(container *libcontainer.Container, nspid int, args []s
 	}
 	if err != nil {
 		closeFds()
-		return -1, err
+		return err
 	}
 
 	// foreach namespace fd, use setns to join an existing container's namespaces
 	for _, fd := range fds {
 		if fd > 0 {
+			log.Printf("setns on %d\n", fd)
 			if err := system.Setns(fd, 0); err != nil {
 				closeFds()
-				return -1, fmt.Errorf("setns %s", err)
+				return fmt.Errorf("setns %s", err)
 			}
 		}
 		system.Closefd(fd)
@@ -46,39 +51,32 @@ func (ns *linuxNs) ExecIn(container *libcontainer.Container, nspid int, args []s
 	if container.Namespaces.Contains("NEWNS") && container.Namespaces.Contains("NEWPID") {
 		pid, err := system.Fork()
 		if err != nil {
-			return -1, err
+			return err
 		}
 		if pid == 0 {
 			// TODO: make all raw syscalls to be fork safe
 			if err := system.Unshare(syscall.CLONE_NEWNS); err != nil {
-				return -1, err
+				return err
 			}
 			if err := remountProc(); err != nil {
-				return -1, fmt.Errorf("remount proc %s", err)
+				return fmt.Errorf("remount proc %s", err)
 			}
 			if err := remountSys(); err != nil {
-				return -1, fmt.Errorf("remount sys %s", err)
+				return fmt.Errorf("remount sys %s", err)
 			}
-			goto dropAndExec
+			return nil
 		}
 		proc, err := os.FindProcess(pid)
 		if err != nil {
-			return -1, err
+			return err
 		}
 		state, err := proc.Wait()
 		if err != nil {
-			return -1, err
+			return err
 		}
 		os.Exit(state.Sys().(syscall.WaitStatus).ExitStatus())
 	}
-dropAndExec:
-	if err := finalizeNamespace(container); err != nil {
-		return -1, err
-	}
-	if err := system.Execv(args[0], args[0:], container.Env); err != nil {
-		return -1, err
-	}
-	panic("unreachable")
+	return nil
 }
 
 func (ns *linuxNs) getNsFds(pid int, container *libcontainer.Container) ([]uintptr, error) {
@@ -89,6 +87,7 @@ func (ns *linuxNs) getNsFds(pid int, container *libcontainer.Container) ([]uintp
 			return fds, err
 		}
 		fds[i] = f.Fd()
+		log.Printf("reading ns %s fd %d\n", ns.File, f.Fd())
 	}
 	return fds, nil
 }

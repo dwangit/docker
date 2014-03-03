@@ -76,6 +76,7 @@ type TtyTerminal interface {
 
 type Driver interface {
 	Run(c *Command, pipes *Pipes, startCallback StartCallback) (int, error) // Run executes the process and blocks until the process exits and returns the exit code
+	Exec(c *Command, pipes *Pipes) (int, error)                             // Exec executes a new process inside an existing container
 	Kill(c *Command, sig int) error
 	Restore(c *Command) error                     // Wait and try to re-attach on an out of process command
 	Name() string                                 // Driver name
