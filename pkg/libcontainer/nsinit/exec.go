@@ -44,11 +44,13 @@ func (ns *linuxNs) Exec(container *libcontainer.Container, nspid int, term Termi
 	if err := command.Start(); err != nil {
 		return -1, err
 	}
-	if err := ns.stateWriter.WritePid(command.Process.Pid); err != nil {
-		command.Process.Kill()
-		return -1, err
+	if nspid <= 0 {
+		if err := ns.stateWriter.WritePid(command.Process.Pid); err != nil {
+			command.Process.Kill()
+			return -1, err
+		}
+		defer ns.stateWriter.DeletePid()
 	}
-	defer ns.stateWriter.DeletePid()
 
 	// Do this before syncing with child so that no children
 	// can escape the cgroup
@@ -56,9 +58,11 @@ func (ns *linuxNs) Exec(container *libcontainer.Container, nspid int, term Termi
 		command.Process.Kill()
 		return -1, err
 	}
-	if err := ns.InitializeNetworking(container, command.Process.Pid, syncPipe); err != nil {
-		command.Process.Kill()
-		return -1, err
+	if nspid <= 0 {
+		if err := ns.InitializeNetworking(container, command.Process.Pid, syncPipe); err != nil {
+			command.Process.Kill()
+			return -1, err
+		}
 	}
 
 	// Sync with child

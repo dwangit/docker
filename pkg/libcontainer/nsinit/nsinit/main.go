@@ -69,7 +69,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := ns.Init(container, cwd, console, syncPipe, flag.Args()[1:]); err != nil {
+		if err := ns.Init(container, nspid, cwd, console, syncPipe, flag.Args()[1:]); err != nil {
 			log.Fatal(err)
 		}
 	default:

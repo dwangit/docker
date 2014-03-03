@@ -11,12 +11,14 @@ import (
 	"github.com/dotcloud/docker/pkg/system"
 	"github.com/dotcloud/docker/pkg/user"
 	"os"
+	"path/filepath"
+	"strconv"
 	"syscall"
 )
 
 // Init is the init process that first runs inside a new namespace to setup mounts, users, networking,
 // and other options required for the new container.
-func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, console string, syncPipe *SyncPipe, args []string) error {
+func (ns *linuxNs) Init(container *libcontainer.Container, nspid int, uncleanRootfs, console string, syncPipe *SyncPipe, args []string) error {
 	rootfs, err := utils.ResolveRootfs(uncleanRootfs)
 	if err != nil {
 		return err
@@ -30,40 +32,95 @@ func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, consol
 	}
 	syncPipe.Close()
 
-	if console != "" {
-		// close pipes so that we can replace it with the pty
-		closeStdPipes()
-		slave, err := system.OpenTerminal(console, syscall.O_RDWR)
+	if nspid <= 0 {
+		if console != "" {
+			// close pipes so that we can replace it with the pty
+			closeStdPipes()
+			slave, err := system.OpenTerminal(console, syscall.O_RDWR)
+			if err != nil {
+				return fmt.Errorf("open terminal %s", err)
+			}
+			if err := dupSlave(slave); err != nil {
+				return fmt.Errorf("dup2 slave %s", err)
+			}
+		}
+		if _, err := system.Setsid(); err != nil {
+			return fmt.Errorf("setsid %s", err)
+		}
+		if console != "" {
+			if err := system.Setctty(); err != nil {
+				return fmt.Errorf("setctty %s", err)
+			}
+		}
+		if err := setupNewMountNamespace(rootfs, console, container.ReadonlyFs); err != nil {
+			return fmt.Errorf("setup mount namespace %s", err)
+		}
+		if err := setupNetwork(container, context); err != nil {
+			return fmt.Errorf("setup networking %s", err)
+		}
+		if err := system.Sethostname(container.Hostname); err != nil {
+			return fmt.Errorf("sethostname %s", err)
+		}
+	} else {
+		for _, ns := range container.Namespaces {
+			if err := system.Unshare(ns.Value); err != nil {
+				return err
+			}
+		}
+		fds, err := ns.getNsFds(nspid, container)
+		closeFds := func() {
+			for _, f := range fds {
+				system.Closefd(f)
+			}
+		}
 		if err != nil {
-			return fmt.Errorf("open terminal %s", err)
+			closeFds()
+			return err
 		}
-		if err := dupSlave(slave); err != nil {
-			return fmt.Errorf("dup2 slave %s", err)
-		}
-	}
-	if _, err := system.Setsid(); err != nil {
-		return fmt.Errorf("setsid %s", err)
-	}
-	if console != "" {
-		if err := system.Setctty(); err != nil {
-			return fmt.Errorf("setctty %s", err)
-		}
-	}
 
-	/*
-		if err := system.ParentDeathSignal(); err != nil {
-			return fmt.Errorf("parent death signal %s", err)
+		// foreach namespace fd, use setns to join an existing container's namespaces
+		for _, fd := range fds {
+			if fd > 0 {
+				if err := system.Setns(fd, 0); err != nil {
+					closeFds()
+					return fmt.Errorf("setns %s", err)
+				}
+			}
+			system.Closefd(fd)
 		}
-	*/
-	if err := setupNewMountNamespace(rootfs, console, container.ReadonlyFs); err != nil {
-		return fmt.Errorf("setup mount namespace %s", err)
+
+		// if the container has a new pid and mount namespace we need to
+		// remount proc and sys to pick up the changes
+		if container.Namespaces.Contains("NEWNS") && container.Namespaces.Contains("NEWPID") {
+			pid, err := system.Fork()
+			if err != nil {
+				return err
+			}
+			if pid == 0 {
+				// TODO: make all raw syscalls to be fork safe
+				if err := system.Unshare(syscall.CLONE_NEWNS); err != nil {
+					return err
+				}
+				if err := remountProc(); err != nil {
+					return fmt.Errorf("remount proc %s", err)
+				}
+				if err := remountSys(); err != nil {
+					return fmt.Errorf("remount sys %s", err)
+				}
+				goto dropAndExec
+			}
+			proc, err := os.FindProcess(pid)
+			if err != nil {
+				return err
+			}
+			state, err := proc.Wait()
+			if err != nil {
+				return err
+			}
+			os.Exit(state.Sys().(syscall.WaitStatus).ExitStatus())
+		}
 	}
-	if err := setupNetwork(container, context); err != nil {
-		return fmt.Errorf("setup networking %s", err)
-	}
-	if err := system.Sethostname(container.Hostname); err != nil {
-		return fmt.Errorf("sethostname %s", err)
-	}
+dropAndExec:
 	if err := finalizeNamespace(container); err != nil {
 		return fmt.Errorf("finalize namespace %s", err)
 	}
@@ -150,4 +207,16 @@ func finalizeNamespace(container *libcontainer.Container) error {
 		}
 	}
 	return nil
+}
+
+func (ns *linuxNs) getNsFds(pid int, container *libcontainer.Container) ([]uintptr, error) {
+	fds := make([]uintptr, len(container.Namespaces))
+	for i, ns := range container.Namespaces {
+		f, err := os.OpenFile(filepath.Join("/proc/", strconv.Itoa(pid), "ns", ns.File), os.O_RDONLY, 0)
+		if err != nil {
+			return fds, err
+		}
+		fds[i] = f.Fd()
+	}
+	return fds, nil
 }
