@@ -56,6 +56,7 @@ func SysInit() {
 		pipe       = flag.Int("pipe", 0, "sync pipe fd")
 		console    = flag.String("console", "", "console (pty slave) path")
 		root       = flag.String("root", ".", "root path for configuration files")
+		nspid      = flag.Int("nspid", 0, "pid for an existing container")
 	)
 	flag.Parse()
 
@@ -84,6 +85,7 @@ func SysInit() {
 		Console:    *console,
 		Pipe:       *pipe,
 		Root:       *root,
+		Nspid:      *nspid,
 	}
 
 	if err := executeProgram(args); err != nil {

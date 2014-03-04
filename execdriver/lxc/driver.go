@@ -205,6 +205,10 @@ func (d *driver) Restore(c *execdriver.Command) error {
 	}
 }
 
+func (d *driver) Exec(c *execdriver.Command, pipes *execdriver.Pipes) (int, error) {
+	return -1, fmt.Errorf("exec is not supported by the lxc driver")
+}
+
 func (d *driver) version() string {
 	var (
 		version string

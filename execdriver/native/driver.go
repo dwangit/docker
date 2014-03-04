@@ -47,7 +47,7 @@ func init() {
 		if err != nil {
 			return err
 		}
-		if err := ns.Init(container, cwd, args.Console, syncPipe, args.Args); err != nil {
+		if err := ns.Init(container, args.Nspid, cwd, args.Console, syncPipe, args.Args); err != nil {
 			return err
 		}
 		return nil
@@ -101,7 +101,7 @@ func (d *driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 	if err := d.writeContainerFile(container, c.ID); err != nil {
 		return -1, err
 	}
-	return ns.Exec(container, term, args)
+	return ns.Exec(container, 0, term, args)
 }
 
 func (d *driver) Kill(p *execdriver.Command, sig int) error {
@@ -190,6 +190,10 @@ func (d *driver) GetPidsForContainer(id string) ([]int, error) {
 	return pids, nil
 }
 
+func (d *driver) Exec(c *execdriver.Command, pipes *execdriver.Pipes) (int, error) {
+	return d.Run(c, pipes, nil)
+}
+
 func (d *driver) writeContainerFile(container *libcontainer.Container, id string) error {
 	data, err := json.Marshal(container)
 	if err != nil {
@@ -235,7 +239,7 @@ type dockerCommandFactory struct {
 // createCommand will return an exec.Cmd with the Cloneflags set to the proper namespaces
 // defined on the container's configuration and use the current binary as the init with the
 // args provided
-func (d *dockerCommandFactory) Create(container *libcontainer.Container, console string, syncFd uintptr, args []string) *exec.Cmd {
+func (d *dockerCommandFactory) Create(container *libcontainer.Container, console string, syncFd uintptr, nspid int, args []string) *exec.Cmd {
 	// we need to join the rootfs because nsinit will setup the rootfs and chroot
 	initPath := filepath.Join(d.c.Rootfs, d.c.InitPath)
 
@@ -246,6 +250,7 @@ func (d *dockerCommandFactory) Create(container *libcontainer.Container, console
 		"-console", console,
 		"-pipe", fmt.Sprint(syncFd),
 		"-root", filepath.Join(d.driver.root, d.c.ID),
+		"-nspid", fmt.Sprint(nspid),
 	}, args...)
 
 	// set this to nil so that when we set the clone flags anything else is reset

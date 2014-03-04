@@ -1144,3 +1144,7 @@ func (container *Container) GetPtyMaster() (*os.File, error) {
 	}
 	return ttyConsole.Master(), nil
 }
+
+func (container *Container) Exec(args []string) (int, error) {
+	return -1, nil
+}

@@ -2026,6 +2026,19 @@ func (cli *DockerCli) CmdLoad(args ...string) error {
 	return nil
 }
 
+func (cli *DockerCli) CmdExec(args ...string) error {
+	cmd := cli.Subcmd("exec", "CONTAINER command", "Exec a new process inside an exisitng container")
+	if err := cmd.Parse(args); err != nil {
+		return err
+	}
+
+	if cmd.NArg() < 2 {
+		cmd.Usage()
+		return nil
+	}
+
+}
+
 func (cli *DockerCli) call(method, path string, data interface{}, passAuthInfo bool) (io.ReadCloser, int, error) {
 	params := bytes.NewBuffer(nil)
 	if data != nil {

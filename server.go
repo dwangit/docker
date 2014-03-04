@@ -95,6 +95,7 @@ func InitServer(job *engine.Job) engine.Status {
 		"push":             srv.ImagePush,
 		"containers":       srv.Containers,
 		"auth":             srv.Auth,
+		"exec":             srv.Exec,
 	} {
 		if err := job.Eng.Register(name, handler); err != nil {
 			return job.Error(err)
@@ -2299,6 +2300,10 @@ func (srv *Server) ContainerCopy(job *engine.Job) engine.Status {
 		return engine.StatusOK
 	}
 	return job.Errorf("No such container: %s", name)
+}
+
+func (srv *Server) Exec(job *engine.Job) engine.Status {
+
 }
 
 func NewServer(eng *engine.Engine, config *DaemonConfig) (*Server, error) {
