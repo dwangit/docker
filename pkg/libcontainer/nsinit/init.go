@@ -32,6 +32,12 @@ func (ns *linuxNs) Init(container *libcontainer.Container, nspid int, uncleanRoo
 	}
 	syncPipe.Close()
 
+	////////////////////////////////////////////////////////////
+	///////////////////////// WARNING //////////////////////////
+	// we are duplicating the setup console code because      //
+	// some crazy go thing is happening where it does not work//
+	// if it is in a function                                 //
+	////////////////////////////////////////////////////////////
 	if nspid <= 0 {
 		if console != "" {
 			// close pipes so that we can replace it with the pty
@@ -67,6 +73,26 @@ func (ns *linuxNs) Init(container *libcontainer.Container, nspid int, uncleanRoo
 				return err
 			}
 		}
+		if console != "" {
+			// close pipes so that we can replace it with the pty
+			closeStdPipes()
+			slave, err := system.OpenTerminal(console, syscall.O_RDWR)
+			if err != nil {
+				return fmt.Errorf("open terminal %s", err)
+			}
+			if err := dupSlave(slave); err != nil {
+				return fmt.Errorf("dup2 slave %s", err)
+			}
+		}
+		if _, err := system.Setsid(); err != nil {
+			return fmt.Errorf("setsid %s", err)
+		}
+		if console != "" {
+			if err := system.Setctty(); err != nil {
+				return fmt.Errorf("setctty %s", err)
+			}
+		}
+
 		fds, err := ns.getNsFds(nspid, container)
 		closeFds := func() {
 			for _, f := range fds {
@@ -107,7 +133,7 @@ func (ns *linuxNs) Init(container *libcontainer.Container, nspid int, uncleanRoo
 				if err := remountSys(); err != nil {
 					return fmt.Errorf("remount sys %s", err)
 				}
-				goto dropAndExec
+				goto final
 			}
 			proc, err := os.FindProcess(pid)
 			if err != nil {
@@ -120,7 +146,7 @@ func (ns *linuxNs) Init(container *libcontainer.Container, nspid int, uncleanRoo
 			os.Exit(state.Sys().(syscall.WaitStatus).ExitStatus())
 		}
 	}
-dropAndExec:
+final:
 	if err := finalizeNamespace(container); err != nil {
 		return fmt.Errorf("finalize namespace %s", err)
 	}
