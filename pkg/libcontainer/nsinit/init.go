@@ -59,7 +59,7 @@ func (ns *linuxNs) Init(container *libcontainer.Container, uncleanRootfs, consol
 		return fmt.Errorf("setup mount namespace %s", err)
 	}
 
-	if err := apparmor.ApplyProfile(os.Getpid(), container.Context["apparmor_profile"]); err != nil && err != apparmor.ErrAppArmorDisabled {
+	if err := apparmor.ApplyProfile(os.Getpid(), container.Context["apparmor_profile"]); err != nil {
 		return err
 	}
 

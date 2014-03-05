@@ -1,26 +1,19 @@
 package apparmor
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 )
 
-var AppArmorEnabled bool
-
-var (
-	ErrAppArmorDisabled = errors.New("Error: AppArmor is not enabled on this system")
-)
-
-func init() {
+func IsEnabled() bool {
 	buf, err := ioutil.ReadFile("/sys/module/apparmor/parameters/enabled")
-	AppArmorEnabled = err == nil && len(buf) > 1 && buf[0] == 'Y'
+	return err == nil && len(buf) > 1 && buf[0] == 'Y'
 }
 
 func ApplyProfile(pid int, name string) error {
-	if !AppArmorEnabled {
-		return ErrAppArmorDisabled
+	if !IsEnabled() || name == "" {
+		return nil
 	}
 	if name == "" {
 		return nil
