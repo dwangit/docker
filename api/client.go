@@ -1042,7 +1042,7 @@ func (cli *DockerCli) CmdPush(args ...string) error {
 
 func (cli *DockerCli) CmdPull(args ...string) error {
 	cmd := cli.Subcmd("pull", "NAME", "Pull an image or a repository from the registry")
-	tag := cmd.String([]string{"t", "-tag"}, "", "Download tagged image in repository")
+	tag := cmd.String([]string{"#t", "#-tag"}, "", "Download tagged image in repository")
 	if err := cmd.Parse(args); err != nil {
 		return nil
 	}
